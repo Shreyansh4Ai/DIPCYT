@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+.Python
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# IDE and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Datasets and downloaded archives
+train2014/
+train2014.zip
+cocotext.v2.json
+cocotext.v2.json.zip
+cocotext.v2.zip
+cocotext_compact.pkl
+*.pdf
+
+# Model weights and generated checkpoints
+*.pt
+*.pth
+*.bak
+checkpoints/
+
+# Generated experiment outputs
+*.log
+optuna_results/
+block_outputs_inspection/
+IMPLEMENTATION_SUMMARY.md
+
+# Local notebooks and exported notebook artifacts
+*.nbconvert.ipynb
+
+# Local environment/configuration files
+.env
+.env.*
