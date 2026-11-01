@@ -36,13 +36,8 @@ from torch.utils.data import Dataset, DataLoader
 from .config import Config, DataConfig, HardwareConfig, TrainConfig
 
 
-# ── Normalisation constants (ImageNet Standard) ──────────────────────────────
-# [BASELINE PREPROCESSING]: Standard ImageNet RGB mean & std
 IMAGENET_MEAN = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
 IMAGENET_STD  = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
-
-
-# ── Polygon Canonicalisation & Arc-Length Resampling ─────────────────────────
 
 def _canonicalize_polygon(poly: np.ndarray) -> np.ndarray:
     """
@@ -55,11 +50,9 @@ def _canonicalize_polygon(poly: np.ndarray) -> np.ndarray:
     if n < 3:
         return poly.copy()
     x, y = poly[:, 0], poly[:, 1]
-    # Shoelace formula signed area for winding direction
     signed_area = 0.5 * np.sum(x * np.roll(y, -1) - np.roll(x, -1) * y)
     if signed_area < 0:  # Force clockwise
         poly = poly[::-1].copy()
-    # Find top-left-most point: argmin of (x + y)
     start = int(np.argmin(poly[:, 0] + poly[:, 1]))
     poly = np.roll(poly, -start, axis=0)
     return poly.astype(np.float32)
@@ -110,9 +103,6 @@ def polygon_area(poly: np.ndarray) -> float:
     return 0.5 * abs(np.sum(x[:-1] * y[1:] - x[1:] * y[:-1])
                      + x[-1] * y[0] - x[0] * y[-1])
 
-
-# ── Augmentations ────────────────────────────────────────────────────────────
-# [ASSUMPTION]: Defaulting to standard TPH-YOLOv5++ / COCO-Text transform pipeline
 
 def random_horizontal_flip(image: np.ndarray, polys: List[np.ndarray]) -> Tuple[np.ndarray, List[np.ndarray]]:
     image = cv2.flip(image, 1)
@@ -188,8 +178,6 @@ def random_gaussian_blur(image: np.ndarray) -> np.ndarray:
     k = random.choice([3, 5])
     return cv2.GaussianBlur(image, (k, k), 0)
 
-
-# ── COCO-Text Annotation Store ───────────────────────────────────────────────
 
 class COCOTextAnnotationStore:
     """Loads, filters (legible-only), and partitions COCO-Text v2.0 annotations using compact caching."""
@@ -330,8 +318,6 @@ class COCOTextAnnotationStore:
         return polys, fname, int(img_h), int(img_w)
 
 
-# ── COCOTextDataset ──────────────────────────────────────────────────────────
-
 class COCOTextDataset(Dataset):
     """
     COCO-Text v2.0 text localization dataset with baseline-matched preprocessing.
@@ -378,7 +364,6 @@ class COCOTextDataset(Dataset):
             image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
             h, w = image.shape[:2]
 
-        # ── Data Augmentations ──
         if self.augment and len(normed) > 0:
             if random.random() < self.aug_cfg.flip_prob:
                 image, normed = random_horizontal_flip(image, normed)
@@ -393,7 +378,6 @@ class COCOTextDataset(Dataset):
             if random.random() < self.aug_cfg.blur_prob:
                 image = random_gaussian_blur(image)
 
-        # ── Filter Degenerate / Unresolvable Polygons ──
         normed = [p for p in normed if polygon_area(p) > self.min_poly_area]
         normed = [
             p for p in normed
@@ -401,21 +385,15 @@ class COCOTextDataset(Dataset):
                    p[:, 1].max() - p[:, 1].min()) * self.img_size >= self.min_box_pixels
         ]
 
-        # ── Re-Canonicalise AFTER Augmentations ──
-        # Flips/rotations shift starting points. Re-canonicalising guarantees consistent CW
-        # vertex topology for deterministic Hungarian matching.
         normed = [_canonicalize_polygon(p) for p in normed]
 
-        # ── Baseline Resizing [PDF Sec 4.2] ──
         image = cv2.resize(image, (self.img_size, self.img_size), interpolation=cv2.INTER_LINEAR)
-
-        # Binary raster segmentation mask
         mask = np.zeros((self.img_size, self.img_size), dtype=np.uint8)
         for p in normed:
             pts = (p * self.img_size).astype(np.int32)
             cv2.fillPoly(mask, [pts], color=1)
 
-        # Pad polygons
+
         padded, real_counts = [], []
         for p in normed:
             pp, rc = pad_polygon(p, self.num_points)
@@ -437,7 +415,7 @@ class COCOTextDataset(Dataset):
         for i in range(num_real):
             point_mask[i, :real_counts[i]] = True
 
-        # Normalized ImageNet Tensor [PDF Sec 4.2]
+
         image_tensor = (
             torch.from_numpy(image.copy())
             .permute(2, 0, 1).float().div(255.0)
@@ -455,23 +433,17 @@ class COCOTextDataset(Dataset):
         }
 
 
-# ── Collate Function ─────────────────────────────────────────────────────────
-
 def polygon_collate_fn(batch: List[Tuple[torch.Tensor, dict]]) -> Tuple[torch.Tensor, List[dict]]:
     images = torch.stack([b[0] for b in batch])
     targets = [b[1] for b in batch]
     return images, targets
 
 
-# ── Deterministic Worker Seeding ─────────────────────────────────────────────
-
 def _seed_worker(worker_id: int):
     worker_seed = torch.initial_seed() % 2**32
     np.random.seed(worker_seed)
     random.seed(worker_seed)
 
-
-# ── Dataloader Factory Function ──────────────────────────────────────────────
 
 def build_loaders(
     cfg: Config,
@@ -521,13 +493,13 @@ def build_loaders(
         min_box_pixels=cfg.data.min_box_pixels,
     )
 
-    # Auto-tune CPU workers to prevent memory thrashing on laptop
+
     cpu_cores = os.cpu_count() or 1
     num_workers = min(cfg.hardware.num_workers, max(1, cpu_cores // 2), 4)
     use_pin_memory = cfg.hardware.pin_memory and torch.cuda.is_available()
     persistent = cfg.hardware.persistent_workers and (num_workers > 0)
 
-    # Batch size (uses hardware.micro_batch_size if set, fallback to train.batch_size)
+
     bs = getattr(cfg.hardware, "micro_batch_size", 4)
 
     g = torch.Generator()

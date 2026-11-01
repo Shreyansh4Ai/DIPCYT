@@ -22,8 +22,6 @@ from scipy.optimize import linear_sum_assignment
 from .config import LossConfig, MatcherConfig
 
 
-# ── Geometry helpers ─────────────────────────────────────────────────────────
-
 def _poly_to_box(polys: torch.Tensor) -> torch.Tensor:
     """Extracts axis-aligned bounding box [xmin, ymin, xmax, ymax] from polygon vertices."""
     xmin = polys[..., 0].min(dim=-1)[0]
@@ -114,8 +112,6 @@ def _polygon_shape_penalty(polys: torch.Tensor, point_mask: Optional[torch.Tenso
         denom = torch.tensor(float(P), device=polys.device)
     return (disagree.sum(dim=1) / denom).mean()
 
-
-# ── Composite Loss with 4-Head Bucketed Hungarian Matcher ────────────────────
 
 class PolygonHungarianLoss(nn.Module):
     """
@@ -223,7 +219,7 @@ class PolygonHungarianLoss(nn.Module):
                     pred_s = pred_cxcywh[:, 2:]                      # (Q, 2)
                     gt_s   = gt_cxcywh[:, 2:]                        # (Gv, 2)
 
-                    # ── 4-Head Size Buckets ──
+
                     gt_boxes_valid = gt_boxes[valid_gt_idx]
                     gt_w = (gt_boxes_valid[:, 2] - gt_boxes_valid[:, 0]).clamp(min=0)
                     gt_h = (gt_boxes_valid[:, 3] - gt_boxes_valid[:, 1]).clamp(min=0)
@@ -231,12 +227,12 @@ class PolygonHungarianLoss(nn.Module):
 
                     Gv = len(valid_gt_idx)
                     head_of_gt = torch.zeros(Gv, dtype=torch.long, device=pred_logits.device)
-                    # D1=40×40, D2=20×20, D3=10×10, D4=5×5
+
                     t0, t1, t2 = self.bucket_thresholds
                     head_of_gt[(max_size >= t0) & (max_size < t1)] = 1   # D2
                     head_of_gt[(max_size >= t1) & (max_size < t2)] = 2   # D3
                     head_of_gt[(max_size >= t2)]                   = 3   # D4
-                    # head 0 (D1) handles max_size < t0
+
 
                     all_rows, all_cols = [], []
                     for head_idx in range(4):
@@ -267,7 +263,7 @@ class PolygonHungarianLoss(nn.Module):
                         row_ind_t = torch.cat(all_rows)
                         col_ind_t = torch.cat(all_cols)
 
-            # ── Loss computation on matched elements ──
+
             valid_col_mask = valid_mask[col_ind_t]
             matched_preds  = pred_coords[i][row_ind_t]
             matched_gts    = gt_polys[col_ind_t]

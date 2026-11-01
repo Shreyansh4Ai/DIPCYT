@@ -21,8 +21,6 @@ from shapely.geometry import Polygon as ShapelyPoly, MultiPoint
 from tqdm import tqdm
 
 
-# ── Polygon IoU (Shapely) ───────────────────────────────────────────────────
-
 def polygon_iou(poly1: np.ndarray, poly2: np.ndarray) -> float:
     """
     Computes IoU between two polygons using Shapely with fast AABB bounding box pre-filtering.
@@ -32,7 +30,6 @@ def polygon_iou(poly1: np.ndarray, poly2: np.ndarray) -> float:
     if len(poly1) < 3 or len(poly2) < 3:
         return 0.0
 
-    # Fast Axis-Aligned Bounding Box (AABB) intersection pre-check
     min1 = poly1.min(axis=0)
     max1 = poly1.max(axis=0)
     min2 = poly2.min(axis=0)
@@ -65,8 +62,6 @@ def polygon_iou(poly1: np.ndarray, poly2: np.ndarray) -> float:
     except Exception:
         return 0.0
 
-
-# ── Instance Evaluation (IoU >= 0.5) ────────────────────────────────────────
 
 def evaluate_instance_metrics(
     all_preds: List[np.ndarray],
@@ -128,8 +123,6 @@ def evaluate_instance_metrics(
     }
 
 
-# ── Paper Area-Overlap Metric (Sec 4.1, Eqs 8-10) ────────────────────────────
-
 @torch.no_grad()
 def evaluate_area_metric(
     model: nn.Module,
@@ -179,8 +172,6 @@ def evaluate_area_metric(
         "area_f1":        float(F),
     }
 
-
-# ── Confidence Threshold Sweep ──────────────────────────────────────────────
 
 @torch.no_grad()
 def sweep_confidence_thresholds(
@@ -278,7 +269,6 @@ def evaluate_model(
             all_preds.append(preds_b)
             all_gts.append(gts_b)
 
-            # Rasterized pixel-area metric
             pm = np.zeros((render_size, render_size), np.uint8)
             gm = np.zeros((render_size, render_size), np.uint8)
 

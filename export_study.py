@@ -23,7 +23,6 @@ for m in matches:
 
 os.makedirs("optuna_results", exist_ok=True)
 
-# Write CSV
 if trials_data:
     keys = list(trials_data[0].keys())
     with open("optuna_results/study_trials.csv", "w", newline="") as f:
@@ -31,9 +30,6 @@ if trials_data:
         writer.writeheader()
         writer.writerows(trials_data)
 
-# Pick best candidate trial:
-# We look for highest value; if multiple tie at 0.0, we pick the most balanced trial with AdamW / cosine / batch_size 2-4
-# Let's inspect trial 0 and other trials
 best_trial = max(trials_data, key=lambda x: (x["value"], x.get("optimizer") == "AdamW", x.get("batch_size") == 2 or x.get("batch_size") == 4))
 best_dict = {k: v for k, v in best_trial.items() if k not in ("trial_number", "value")}
 

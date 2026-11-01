@@ -25,10 +25,6 @@ import torch.nn.functional as F
 from .config import ModelConfig
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# 1.  BACKBONE  — TPHYOLOv5PlusPlus
-# ═══════════════════════════════════════════════════════════════════════════════
-
 class StdConvBlock(nn.Module):
     """Conv2d + GroupNorm + SiLU."""
     def __init__(self, in_c: int, out_c: int, k: int = 3, s: int = 1, p: int = 1):
@@ -207,10 +203,6 @@ class TPHYOLOv5PlusPlus(nn.Module):
         return p3, p4, p5
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# 2.  FPCBAM — Fourier Positional Convolutional Block Attention Module
-# ═══════════════════════════════════════════════════════════════════════════════
-
 class PAM(nn.Module):
     """Position Attention Module — pairwise spatial self-attention with learned α."""
     def __init__(self, in_channels: int):
@@ -265,23 +257,15 @@ class FPCBAM(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         f = self._fft_feature(x)
-        # Channel attention
         avg_ch = self.channel_mlp(f.mean(dim=(2, 3), keepdim=True))
         max_ch = self.channel_mlp(f.amax(dim=(2, 3), keepdim=True))
         f_cbam = f * torch.sigmoid(avg_ch + max_ch)
-        # Spatial attention
         avg_sp = f_cbam.mean(dim=1, keepdim=True)
         max_sp = f_cbam.amax(dim=1, keepdim=True)
         f_cbam = f_cbam * self.spatial_att(torch.cat([avg_sp, max_sp], dim=1))
-        # Position attention
         f_pam = self.pam(f) if self.use_pam else f
-        # Gated residual (gate initialised to 0 → identity at init)
         return self.gate * (f_pam + f_cbam) + x
 
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# 3.  PANet + Swin Transformer
-# ═══════════════════════════════════════════════════════════════════════════════
 
 class BNSequential(nn.Module):
     """Conv + GroupNorm + ReLU (called BNSequential for historical reasons; uses GN)."""
@@ -454,8 +438,7 @@ class PANet(nn.Module):
         lats = [lat(f) for lat, f in zip(self.laterals, features)]
         lats = [self.td_fpcbam[i](lats[i]) for i in range(3)]
 
-        # Top-down pathway
-        p5_td    = self.td_p5_tran(lats[2])
+        p5_td = self.td_p5_tran(lats[2])
         p5_up    = F.interpolate(p5_td, size=lats[1].shape[-2:], mode='nearest')
         p4_fused = self.td_fuse[1](torch.cat([lats[1], p5_up], dim=1))
         p4_td    = self.td_c3[1](p4_fused)
@@ -463,11 +446,9 @@ class PANet(nn.Module):
         p3_fused = self.td_fuse[0](torch.cat([lats[0], p4_up], dim=1))
         d1       = self.td_c3[0](p3_fused)
 
-        # Extra downsampled P5 levels for bottom-up
         p5_td_10 = F.avg_pool2d(p5_td, kernel_size=2, stride=2)
         p5_td_5  = F.avg_pool2d(p5_td_10, kernel_size=2, stride=2)
 
-        # Bottom-up pathway
         d1_down = self.bu_convs[0](d1)
         bu1     = self.bu_fuse[0](torch.cat([p4_td, d1_down], dim=1))
         bu1     = self.bu_tran[0](bu1)
@@ -484,10 +465,6 @@ class PANet(nn.Module):
 
         return [d1, d2, d3, d4]
 
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# 4.  Transformer Polygon Head
-# ═══════════════════════════════════════════════════════════════════════════════
 
 class PositionalEncoding2D(nn.Module):
     """Sinusoidal 2D positional encoding."""
@@ -546,7 +523,6 @@ class TransformerPolygonHead(nn.Module):
 
         self.query_embed = nn.Embedding(self.num_queries, in_channels)
 
-        # Learnable reference anchor points (initialised as random cluster centres)
         _centers   = torch.rand(self.num_queries, 1, 2)
         _spread    = (torch.rand(self.num_queries, num_points, 2) - 0.5) * 0.04
         _ref       = (_centers + _spread).clamp(0.02, 0.98)
@@ -567,7 +543,6 @@ class TransformerPolygonHead(nn.Module):
         )
         self.conf_head = nn.Linear(in_channels, 1)
 
-        # ── Initialisation ───────────────────────────────────────────────
         nn.init.zeros_(self.poly_head[-1].weight)
         nn.init.zeros_(self.poly_head[-1].bias)
         nn.init.constant_(self.conf_head.bias, conf_bias_init)
@@ -597,7 +572,6 @@ class TransformerPolygonHead(nn.Module):
         out = tgt
 
         pred_logits = self.conf_head(out)
-        # Anchor-relative: point = sigmoid(ref) + small delta
         ref   = self.ref_points.unsqueeze(0).sigmoid()
         delta = self.poly_head(out) * 0.1
         pred_coords = (ref + delta).clamp(0.0, 1.0)
@@ -612,10 +586,6 @@ class TransformerPolygonHead(nn.Module):
             "ref_centers": ref_xy.unsqueeze(0).expand(B, -1, -1),
         }
 
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# 5.  Full Model
-# ═══════════════════════════════════════════════════════════════════════════════
 
 class FullModel(nn.Module):
     """DIPCYT-X40s: backbone → PANet (4 levels) → 4 TransformerPolygonHeads."""

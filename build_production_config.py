@@ -2,10 +2,8 @@ import yaml
 from pathlib import Path
 from pipeline.config import Config
 
-# Load default config
 cfg = Config.from_yaml("default_config.yaml")
 
-# Load best parameters from Optuna
 with open("optuna_results/best_params.yaml", "r") as f:
     best_params = yaml.safe_load(f)
 
@@ -13,11 +11,9 @@ print("Applying Optuna best params to production config:")
 for k, v in best_params.items():
     print(f"  {k}: {v}")
 
-# Apply to model
 if "fpcbam_reduction_ratio" in best_params:
     cfg.model.fpcbam_reduction_ratio = int(best_params["fpcbam_reduction_ratio"])
 
-# Apply to loss
 if "focal_alpha" in best_params:
     cfg.loss.focal_alpha = float(best_params["focal_alpha"])
 if "focal_gamma" in best_params:
@@ -27,7 +23,6 @@ if "lambda_giou" in best_params:
 if "lambda_shape" in best_params:
     cfg.loss.lambda_shape = float(best_params["lambda_shape"])
 
-# Apply to matcher
 if "center_cost_weight" in best_params:
     cfg.matcher.center_cost_weight = float(best_params["center_cost_weight"])
 if "size_cost_weight" in best_params:
@@ -35,13 +30,11 @@ if "size_cost_weight" in best_params:
 if "giou_cost_weight" in best_params:
     cfg.matcher.giou_cost_weight = float(best_params["giou_cost_weight"])
 
-# Apply to hardware
 if "batch_size" in best_params:
     bs = int(best_params["batch_size"])
     cfg.hardware.micro_batch_size = bs
     cfg.hardware.gradient_accumulation_steps = max(1, cfg.hardware.target_effective_batch_size // bs)
 
-# Apply to train
 if "optimizer" in best_params:
     cfg.train.optimizer = str(best_params["optimizer"])
 if "lr" in best_params:

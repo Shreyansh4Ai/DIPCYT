@@ -23,7 +23,6 @@ if TYPE_CHECKING:
     from .model import TPHYOLOv5PlusPlus
 
 
-# ── Weight slicing helpers ───────────────────────────────────────────────────
 
 def _slice_conv(yl_weight: torch.Tensor, our_weight: torch.Tensor) -> torch.Tensor:
     Co, Ci = our_weight.shape[:2]
@@ -42,7 +41,6 @@ def _slice_norm(yl_param: torch.Tensor, our_param: torch.Tensor) -> torch.Tensor
     return yl_param[:Co].detach().cpu().clone()
 
 
-# ── Loading and state dict extraction ────────────────────────────────────────
 
 def _load_yolov5_state_dict(cache_path: Path) -> dict:
     url = "https://github.com/ultralytics/yolov5/releases/download/v7.0/yolov5s.pt"
@@ -55,7 +53,6 @@ def _load_yolov5_state_dict(cache_path: Path) -> dict:
     else:
         print(f"  [OK] Cache hit ({cache_path.stat().st_size / 1e6:.1f} MB)")
 
-    # Ultralytics checkpoint loading may require YOLOv5 classes in sys.path
     repo_dir = Path(tempfile.gettempdir()) / "yolov5"
     if not repo_dir.exists():
         try:
@@ -89,7 +86,6 @@ def _extract_yolov5_weights(raw_sd: dict) -> dict:
         return raw_sd[key]
 
     result = {
-        # ── Conv weights ───────────────────────────────────────────────────
         "pconv1_conv":   get("model.1.conv.weight"),
         "c3_1_cv1":      get("model.2.cv1.conv.weight"),
         "c3_1_cv2":      get("model.2.cv2.conv.weight"),
@@ -106,7 +102,6 @@ def _extract_yolov5_weights(raw_sd: dict) -> dict:
         "sppf_cv1":      get("model.9.cv1.conv.weight"),
         "sppf_cv2":      get("model.9.cv2.conv.weight"),
 
-        # ── BN γ (weight) ─────────────────────────────────────────────────
         "pconv1_bn_w":   get("model.1.bn.weight"),
         "c3_1_cv1_bn_w": get("model.2.cv1.bn.weight"),
         "c3_1_cv2_bn_w": get("model.2.cv2.bn.weight"),
@@ -123,7 +118,6 @@ def _extract_yolov5_weights(raw_sd: dict) -> dict:
         "sppf_cv1_bn_w": get("model.9.cv1.bn.weight"),
         "sppf_cv2_bn_w": get("model.9.cv2.bn.weight"),
 
-        # ── BN β (bias) ───────────────────────────────────────────────────
         "pconv1_bn_b":   get("model.1.bn.bias"),
         "c3_1_cv1_bn_b": get("model.2.cv1.bn.bias"),
         "c3_1_cv2_bn_b": get("model.2.cv2.bn.bias"),
@@ -141,7 +135,6 @@ def _extract_yolov5_weights(raw_sd: dict) -> dict:
         "sppf_cv2_bn_b": get("model.9.cv2.bn.bias"),
     }
 
-    # ── Internal bottleneck weights ───────────────────────────────────────
     c3_configs = [
         ("c3_1", 2, 3),    # model.2, 3 bottleneck blocks
         ("c3_2", 4, 9),    # model.4, 9 bottleneck blocks
@@ -162,7 +155,6 @@ def _extract_yolov5_weights(raw_sd: dict) -> dict:
     return result
 
 
-# ── Main transfer function ────────────────────────────────────────────────────
 
 def load_yolov5l_backbone_weights(
     backbone: "TPHYOLOv5PlusPlus",
@@ -179,7 +171,6 @@ def load_yolov5l_backbone_weights(
 
     bb_total_params = sum(p.numel() for p in backbone.parameters())
 
-    # ── Conv weight mapping ──────────────────────────────────────────────────
     CONV_MAPPING = [
         ("pconv1.pconv.conv", yl_w["pconv1_conv"]),
         ("c3_1.cv1.conv",     yl_w["c3_1_cv1"]),
@@ -198,7 +189,6 @@ def load_yolov5l_backbone_weights(
         ("sppf.cv2.conv",     yl_w["sppf_cv2"]),
     ]
 
-    # ── BN γ/β → GN γ/β mapping ──────────────────────────────────────────────
     NORM_MAPPING = [
         ("pconv1.pconv.norm", yl_w["pconv1_bn_w"],   yl_w["pconv1_bn_b"]),
         ("c3_1.cv1.norm",     yl_w["c3_1_cv1_bn_w"], yl_w["c3_1_cv1_bn_b"]),
@@ -217,7 +207,6 @@ def load_yolov5l_backbone_weights(
         ("sppf.cv2.norm",     yl_w["sppf_cv2_bn_w"], yl_w["sppf_cv2_bn_b"]),
     ]
 
-    # ── Bottleneck internal conv + norm weights ──────────────────────────────
     c3_configs = [
         ("c3_1", 3),    # 3 bottleneck blocks
         ("c3_2", 9),    # 9 bottleneck blocks
@@ -281,7 +270,6 @@ def load_yolov5l_backbone_weights(
 
     backbone.load_state_dict(new_sd)
 
-    # Sanity checks
     any_nan = any(p.isnan().any().item() for p in backbone.parameters())
     any_inf = any(p.isinf().any().item() for p in backbone.parameters())
     if any_nan or any_inf:

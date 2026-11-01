@@ -38,8 +38,6 @@ from .losses import PolygonHungarianLoss
 from .model import FullModel
 
 
-# ── Persistent Disk & Console Logger ─────────────────────────────────────────
-
 class PipelineLogger:
     """Logs messages simultaneously to stdout and a persistent file."""
     def __init__(self, log_path: Optional[str | Path] = None):
@@ -63,8 +61,6 @@ class PipelineLogger:
             except Exception:
                 pass
 
-
-# ── VRAM Probe & Dynamic Batch Sizing ────────────────────────────────────────
 
 def probe_vram_and_batch_size(
     model: nn.Module,
@@ -125,10 +121,8 @@ def probe_vram_and_batch_size(
             torch.cuda.empty_cache()
             break
 
-    # Apply 20% safety margin backoff
     margin = cfg.hardware.vram_safety_margin
     backed_off = max(1, int(max_safe * (1.0 - margin)))
-    # Round to power-of-2 or integer
     final_micro_bs = backed_off
     accum_steps = max(1, target_effective // final_micro_bs)
 
@@ -143,8 +137,6 @@ def probe_vram_and_batch_size(
 
     return final_micro_bs, accum_steps
 
-
-# ── Optimizer & Scheduler Builder ────────────────────────────────────────────
 
 def build_optimizer_and_scheduler(
     model: nn.Module,
@@ -189,8 +181,6 @@ def build_optimizer_and_scheduler(
     return optimizer, scheduler
 
 
-# ── Checkpointing & Disk Usage Cap ───────────────────────────────────────────
-
 def save_checkpoint(
     model: nn.Module,
     optimizer: torch.optim.Optimizer,
@@ -223,7 +213,6 @@ def save_checkpoint(
         path.rename(bak_path)
     tmp_path.rename(path)
 
-    # Clean up older numbered epoch checkpoints to cap disk usage
     if keep_last_k > 0 and path.parent.exists():
         epoch_ckpts = sorted(
             [p for p in path.parent.glob("epoch_*.pth") if p.name != "best_model.pth"],
@@ -270,8 +259,6 @@ def load_checkpoint(
     return ckpt.get("epoch", 0), ckpt.get("step", 0), ckpt.get("metric", 0.0)
 
 
-# ── Single Epoch Training with OOM & NaN Guards ──────────────────────────────
-
 def train_one_epoch(
     model: nn.Module,
     loader: DataLoader,
@@ -303,7 +290,6 @@ def train_one_epoch(
     t0 = time.time()
 
     for batch_idx, (images, targets) in enumerate(pbar):
-        # ── Step wrapped in OOM-safe block ──
         for retry in range(cfg.hardware.max_oom_retries):
             try:
                 images = images.to(device, dtype=torch.float32)
@@ -324,7 +310,6 @@ def train_one_epoch(
                 else:
                     scaled_loss.backward()
 
-                # Step optimizer when accumulation threshold is reached
                 if (batch_idx + 1) % accum_steps == 0 or (batch_idx + 1) == len(loader):
                     if cfg.train.grad_clip > 0:
                         if scaler is not None and use_amp:
@@ -346,7 +331,6 @@ def train_one_epoch(
                 valid_batches += 1
                 pbar.set_postfix({"loss": f"{loss_val:.4f}"})
 
-                # ── Periodic Step Logging ──
                 if (batch_idx + 1) % cfg.hardware.log_every_n_steps == 0:
                     lr_curr = optimizer.param_groups[0]["lr"]
                     vram_str = ""
@@ -390,8 +374,6 @@ def train_one_epoch(
     return total_loss / max(1, valid_batches)
 
 
-# -- Full Training Pipeline (Production Runner) -------------------------------
-
 def train_pipeline(
     cfg: Config,
     resume_path: Optional[str | Path] = None,
@@ -399,12 +381,10 @@ def train_pipeline(
     """Production training pipeline with baseline matching and safety guards."""
     logger = PipelineLogger(cfg.hardware.log_file)
 
-    # 1. Deterministic Seeding
     torch.manual_seed(cfg.train.seed)
     np.random.seed(cfg.train.seed)
     random.seed(cfg.train.seed)
 
-    # 2. Device Selection & Warnings
     if torch.cuda.is_available():
         device = torch.device("cuda")
         logger.log(f"[OK] Using GPU: {torch.cuda.get_device_name(0)}")
@@ -412,14 +392,12 @@ def train_pipeline(
         device = torch.device("cpu")
         logger.log("[WARNING] CUDA is NOT available. Running on CPU (slowdown expected).", console=True)
 
-    # 3. Build Model & Gradient Checkpointing
     model = FullModel(cfg.model).to(device)
     if cfg.model.enable_gradient_checkpointing:
         model.enable_gradient_checkpointing(True)
 
     criterion = PolygonHungarianLoss(loss_cfg=cfg.loss, matcher_cfg=cfg.matcher)
 
-    # 4. VRAM Probe & Dynamic Batch Configuration
     if cfg.hardware.auto_probe_vram and device.type == "cuda":
         micro_bs, accum_steps = probe_vram_and_batch_size(model, cfg, device, logger)
         cfg.hardware.micro_batch_size = micro_bs
@@ -431,10 +409,8 @@ def train_pipeline(
         micro_bs = cfg.hardware.micro_batch_size
         accum_steps = cfg.hardware.gradient_accumulation_steps
 
-    # 5. Build Dataloaders
     train_loader, val_loader, test_loader, _ = build_loaders(cfg)
 
-    # 6. Resume Checkpoint / Model Weights if specified
     start_epoch = 0
     best_f1 = -1.0
     ckpt_dict = None
@@ -449,7 +425,6 @@ def train_pipeline(
         start_epoch = saved_epoch + 1
         model.to(device)
 
-    # 7. Backbone Freeze / Unfreeze based on start_epoch
     if cfg.train.backbone_unfreeze_epoch > start_epoch:
         model.freeze_backbone()
         logger.log(f"Backbone frozen until epoch {cfg.train.backbone_unfreeze_epoch}")
@@ -457,7 +432,6 @@ def train_pipeline(
         model.unfreeze_backbone()
         logger.log("Backbone is unfrozen (end-to-end training active)")
 
-    # 8. Build Optimizer, Scheduler, and GradScaler with correct parameter groups
     remaining_steps = (len(train_loader) // accum_steps) * max(1, cfg.train.num_epochs - start_epoch)
     optimizer, scheduler = build_optimizer_and_scheduler(model, cfg, remaining_steps)
     use_amp = cfg.hardware.use_amp and (device.type == "cuda")
@@ -499,9 +473,7 @@ def train_pipeline(
     logger.log(f"  Training Samples: {len(train_loader.dataset):,} | Validation Samples: {len(val_loader.dataset):,}")
     logger.log("=" * 60)
 
-    # 9. Main Epoch Loop
     for epoch in range(start_epoch, cfg.train.num_epochs):
-        # Check unfreeze
         if cfg.train.backbone_unfreeze_epoch > 0 and epoch == cfg.train.backbone_unfreeze_epoch:
             model.unfreeze_backbone()
             remaining_steps = (len(train_loader) // accum_steps) * (cfg.train.num_epochs - epoch)
@@ -522,7 +494,6 @@ def train_pipeline(
             accum_steps=accum_steps,
         )
 
-        # Validation
         val_metrics = evaluate_model(model, val_loader, device)
         f1 = val_metrics["f1"]
         area_f1 = val_metrics["area_f1"]
@@ -535,7 +506,6 @@ def train_pipeline(
         )
         logger.log(log_msg)
 
-        # Save best model
         if f1 > best_f1:
             best_f1 = f1
             save_checkpoint(
@@ -551,7 +521,6 @@ def train_pipeline(
             )
             logger.log(f"  [BEST] New best model saved! (Val F1: {best_f1:.4f})")
 
-        # Save regular epoch checkpoint
         if (epoch + 1) % cfg.train.save_every_epoch == 0:
             save_checkpoint(
                 model=model,
@@ -571,8 +540,6 @@ def train_pipeline(
     return model
 
 
-# ── Proxy Trial Runner (Progressive Overfit for Optuna HPO) ──────────────────
-
 def run_proxy_trial(
     cfg: Config,
     device: Optional[torch.device] = None,
@@ -585,7 +552,6 @@ def run_proxy_trial(
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # Strict reproducibility per trial
     torch.manual_seed(cfg.train.seed)
     np.random.seed(cfg.train.seed)
     random.seed(cfg.train.seed)
@@ -593,7 +559,6 @@ def run_proxy_trial(
     model = FullModel(cfg.model).to(device)
     criterion = PolygonHungarianLoss(loss_cfg=cfg.loss, matcher_cfg=cfg.matcher)
 
-    # Data loading for proxy partition
     from .dataset import COCOTextAnnotationStore, COCOTextDataset
     ann_store = COCOTextAnnotationStore(cfg.data.ann_file)
     train_ids, val_ids, _ = ann_store.get_splits(seed=cfg.train.seed)
@@ -689,7 +654,6 @@ def run_proxy_trial(
             torch.cuda.empty_cache()
             return 0.0
 
-        # Periodic intermediate evaluation and pruning check
         if it % log_every == 0 or it == num_iters:
             val_metrics = evaluate_model(model, val_loader, device)
             f1 = val_metrics["f1"]
@@ -702,8 +666,6 @@ def run_proxy_trial(
     final_metrics = evaluate_model(model, val_loader, device)
     return float(final_metrics["f1"])
 
-
-# ── CLI Entry point ──────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="DIPCYT-X40s Production Training")
