@@ -2,7 +2,9 @@
 
 ## Domain-Independent Scene Text Localization with Multi-Scale Polygon Transformers
 
-DIPCYT-X40s is an end-to-end PyTorch implementation of a DIPCYT-style scene-text localization system. The project combines convolutional feature extraction, partial convolution, Fourier-enhanced attention, Swin Transformer feature aggregation, and Transformer-based polygon detection heads.
+DIPCYT-X40s is a complete, modular PyTorch pipeline for developing a DIPCYT-style scene-text localization system. The project combines convolutional feature extraction, partial convolution, Fourier-enhanced attention, Swin Transformer feature aggregation, and Transformer-based polygon detection heads.
+
+The repository provides the complete software pipeline and research infrastructure. It is not presented as a fully completed or final reproduction of every experimental result from the reference paper. The implementation is intended as a strong foundation for continued model development, training, evaluation, and ablation studies.
 
 The goal is to localize text directly as flexible polygons instead of restricting every text instance to an axis-aligned rectangle. This makes the system suitable for difficult visual conditions such as rotated text, curved text, small text, cluttered backgrounds, occlusion, and low-contrast scenes.
 
@@ -417,14 +419,7 @@ CUDA autocasting and gradient scaling reduce memory usage and improve training t
 
 ### VRAM-aware batch sizing
 
-Before training, the system can probe feasible batch sizes. The recorded production run found:
-
-```text
-GPU memory: approximately 4 GB
-Maximum feasible micro-batch: 8
-Safe micro-batch: 6
-Effective batch size: 6
-```
+Before training, the system can probe feasible batch sizes and select a safe micro-batch for the available GPU memory.
 
 ### Gradient accumulation
 
@@ -444,9 +439,9 @@ Checkpoints store:
 - AMP scaler state
 - Epoch number
 - Training step
-- Best validation score
+- Validation score metadata
 
-The best checkpoint is saved as:
+The best checkpoint from a training run is saved as:
 
 ```text
 checkpoints/best_model.pth
@@ -460,10 +455,8 @@ The logger records:
 - Training loss
 - Learning rate
 - GPU memory usage
-- Validation precision
-- Validation recall
-- Validation F1
-- Area-overlap F1
+- Validation metrics
+- Area-overlap metrics
 
 ---
 
@@ -706,54 +699,25 @@ python run.py optuna \
 
 ---
 
-## Experiment Results
+## Implementation Status
 
-The completed production run trained for 30 epochs on COCO-Text using the production configuration.
+This repository contains a complete and runnable software pipeline for the DIPCYT-X40s project:
 
-### Recorded configuration
+- Model construction
+- Dataset loading
+- Polygon preprocessing
+- Data augmentation
+- Multi-scale matching
+- Loss computation
+- Training
+- Checkpointing
+- Evaluation
+- Confidence-threshold sweeps
+- Hyperparameter search
 
-```text
-Input resolution: 640 x 640
-Training images: 13,880
-Validation images: 2,184
-Optimizer: AdamW
-Scheduler: cosine
-Mixed precision: enabled
-Effective batch size: 6
-Backbone unfreeze epoch: 2
-Queries per head: 32
-Detection heads: 4
-Polygon points: 6
-```
+The research implementation is still under active development. The repository should therefore be understood as a complete pipeline and implementation foundation, not as a claim that the original paper has been fully reproduced or that all final experiments have been completed.
 
-### Training progression
-
-| Epoch | Loss | Precision | Recall | Instance F1 | Area F1 |
-|---:|---:|---:|---:|---:|---:|
-| 1 | 2.0549 | 0.0005 | 0.0128 | 0.0010 | 0.0381 |
-| 5 | 1.4867 | 0.0050 | 0.0529 | 0.0091 | 0.0897 |
-| 10 | 1.2398 | 0.0164 | 0.1639 | 0.0299 | 0.1578 |
-| 15 | 1.1156 | 0.0245 | 0.2343 | 0.0444 | 0.1899 |
-| 20 | 1.0419 | 0.0340 | 0.3031 | 0.0611 | 0.2323 |
-| 25 | 0.9211 | 0.0439 | 0.3516 | 0.0780 | 0.2780 |
-| 27 | 0.9010 | 0.0443 | 0.3549 | 0.0788 | 0.2830 |
-| 28 | 0.8891 | 0.0445 | 0.3533 | 0.0791 | 0.2907 |
-| 29 | 0.9287 | 0.0443 | 0.3628 | 0.0789 | 0.2743 |
-| 30 | 0.9433 | 0.0438 | 0.3628 | 0.0782 | 0.2732 |
-
-The best checkpoint was saved at:
-
-```text
-checkpoints/best_model.pth
-```
-
-The complete training log is available locally as:
-
-```text
-production_training.log
-```
-
-The results show a steady reduction in training loss and a substantial increase in validation recall over the training run.
+Training outputs, checkpoints, logs, datasets, and generated experiment artifacts are intentionally kept outside the public source tree and are excluded by `.gitignore`.
 
 ---
 
@@ -796,4 +760,3 @@ The implementation is intended for research, experimentation, and educational us
 ## License
 
 Add the license appropriate for your intended use before distributing the repository.
-
